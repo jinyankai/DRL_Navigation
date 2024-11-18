@@ -1,7 +1,9 @@
 import gym
 import numpy as np
 import pygame
+import random
 from gym import spaces
+from sympy.printing.pretty.pretty_symbology import center
 
 from constants import (
     CHECKPOINT_RADIUS,
@@ -17,20 +19,24 @@ from utils.drawing_utils import draw_robot
 
 
 class EscapeRoomEnv(gym.Env):
-    def __init__(self, max_steps_per_episode=2000, goal=(530, 290), delta=15):
+    def __init__(self, max_steps_per_episode=2000, delta=15):
         super().__init__()
-
+        self.obs_dis = [0.0 , 0.0 , 0.0 , 0.0]
+        self.reward = 0
         # 设置机器人的初始生成位置
         self.spawn_x = int(70 * SCALE_FACTOR)
         self.spawn_y = int(70 * SCALE_FACTOR)
-
+        self.goal = [0,0]
+        self.goal[0] = random.randint(100, 530)
+        self.goal[1] = random.randint(100, 430)
         # 设置目标位置
         self.goal_position = np.array(
-            [int(goal[0] * SCALE_FACTOR), int(goal[1] * SCALE_FACTOR)]
+            [int(self.goal[0] * SCALE_FACTOR), int(self.goal[1] * SCALE_FACTOR)]
         )
 
         # 初始化墙壁
         self.walls = [Wall(**wall_data) for wall_data in walls_mapping]
+        self.walls_realm = []
 
         # 设置允许的偏差
         self.delta = delta
@@ -39,8 +45,10 @@ class EscapeRoomEnv(gym.Env):
         self.goal = Checkpoint(self.goal_position, CHECKPOINT_RADIUS, (0, 128, 0), "G")
 
         # 设置观察空间（状态空间）
-        low = np.array([-1.5 * ENV_WIDTH, -1.5 * ENV_HEIGHT, -np.pi, -5.0, -5.0, -5.0])
-        high = np.array([1.5 * ENV_WIDTH, 1.5 * ENV_HEIGHT, np.pi, 5.0, 5.0, 5.0])
+        # why -1.5 * ENV_WIDTH and -1.5 * ENV_HEIGHT
+        # why 1.5 * ENV_WIDTH and 1.5 * ENV_HEIGHT
+        low = np.array([-1.5 * ENV_WIDTH, -1.5 * ENV_HEIGHT, -np.pi, -5.0, -5.0, -5.0, 0.0 ,0.0 ,0.0 , 0.0 , -10000])
+        high = np.array([1.5 * ENV_WIDTH, 1.5 * ENV_HEIGHT, np.pi, 5.0, 5.0, 5.0, 600.0, 600.0 , 600.0 , 600.0 , 100000])
         self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
 
         # 设置动作空间（控制机器人的行为）
@@ -59,6 +67,18 @@ class EscapeRoomEnv(gym.Env):
         )
         self.screen = None
         self.clock = None
+
+    def not_in_obstacle(self):
+        x,y = self.goal_position[0],self.goal_position[1]
+        for wall in self.walls:
+            start_x = wall.start_pos[0]
+            start_y = wall.start_pos[1]
+            end_x = start_x + wall.width
+            end_y = start_y + wall.height
+            if (x > start_x and x < end_x) and (y > start_y and y < end_y):
+                return False
+        return True
+
 
     def step(self, action):
         # 确保动作在预定范围内
@@ -100,10 +120,25 @@ class EscapeRoomEnv(gym.Env):
         heading_difference = (heading_difference + np.pi) % (2 * np.pi) - np.pi
 
         # 根据朝向差异应用奖励
-        if heading_difference > np.pi / 6:  # 如果偏离超过30度
-            reward += -np.log1p(heading_difference)
-            if self.robot.omega > np.pi / 6:
-                reward += -alpha
+        # if heading_difference > np.pi / 6:  # 如果偏离超过30度
+        #    reward += -np.log1p(heading_difference)
+        #   if self.robot.omega > np.pi / 6:
+        #       reward += -alpha
+        #计算距离障碍物的奖励
+        i = 0
+        for wall in self.walls:
+            center_pos = [0,0]
+            center_pos[0] = wall.start_pos[0] + wall.width / 2
+            center_pos[1] = wall.start_pos[1] + wall.height / 2
+            radius =  np.linalg.norm(np.array(wall.start_pos)-np.array(center_pos))
+            new_dis = np.linalg.norm(np.array(center_pos) - new_pos)
+            if(new_dis < radius + 10):
+                reward -= 5 * (abs(new_dis - radius))
+            else:
+                reward += 0.05 * (abs(new_dis - radius))
+            self.obs_dis[i] = new_dis
+            i = i + 1
+        # reward += -np.log1p(np.min(obs_dis))
 
         # 计算距离改善的奖励
         if distance_improvement > 0:
@@ -116,6 +151,8 @@ class EscapeRoomEnv(gym.Env):
         reward += penalty
         reward += -alpha  # 步数惩罚
 
+        self.reward = reward
+
         # 返回状态
         state = np.array(
             [
@@ -125,6 +162,12 @@ class EscapeRoomEnv(gym.Env):
                 self.robot.vx,
                 self.robot.vy,
                 self.robot.omega,
+                self.obs_dis[0],
+                self.obs_dis[1],
+                self.obs_dis[2],
+                self.obs_dis[3],
+                self.reward
+
             ]
         )
 
@@ -175,6 +218,11 @@ class EscapeRoomEnv(gym.Env):
                     self.robot.vx,
                     self.robot.vy,
                     self.robot.omega,
+                    self.obs_dis[0],
+                    self.obs_dis[1],
+                    self.obs_dis[2],
+                    self.obs_dis[3],
+                    self.reward
                 ]
             ),
             info,
