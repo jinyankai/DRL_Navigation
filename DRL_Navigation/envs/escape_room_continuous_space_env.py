@@ -23,6 +23,7 @@ class EscapeRoomEnv(gym.Env):
         super().__init__()
         self.obs_dis = [0.0 , 0.0 , 0.0 , 0.0]
         self.reward = 0
+        self.goal_dis = 100000
         # 设置机器人的初始生成位置
         self.spawn_x = int(70 * SCALE_FACTOR)
         self.spawn_y = int(70 * SCALE_FACTOR)
@@ -47,8 +48,8 @@ class EscapeRoomEnv(gym.Env):
         # 设置观察空间（状态空间）
         # why -1.5 * ENV_WIDTH and -1.5 * ENV_HEIGHT
         # why 1.5 * ENV_WIDTH and 1.5 * ENV_HEIGHT
-        low = np.array([-1.5 * ENV_WIDTH, -1.5 * ENV_HEIGHT, -np.pi, -5.0, -5.0, -5.0, 0.0 ,0.0 ,0.0 , 0.0 , -10000])
-        high = np.array([1.5 * ENV_WIDTH, 1.5 * ENV_HEIGHT, np.pi, 5.0, 5.0, 5.0, 600.0, 600.0 , 600.0 , 600.0 , 100000])
+        low = np.array([-1.5 * ENV_WIDTH, -1.5 * ENV_HEIGHT, -np.pi, -5.0,  0.0 ,0.0 ,0.0 , 0.0 , 0.0, 0.0])
+        high = np.array([1.5 * ENV_WIDTH, 1.5 * ENV_HEIGHT, np.pi, 5.0,  600.0, 600.0 , 600.0 , 600.0 , 0.0 , 0.0])
         self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
 
         # 设置动作空间（控制机器人的行为）
@@ -79,6 +80,10 @@ class EscapeRoomEnv(gym.Env):
                 return False
         return True
 
+    def dis_to_goal(self):
+        return np.linalg.norm(
+            np.array([self.robot.x, self.robot.y]) - np.array(self.goal.center_pos)
+        )
 
     def step(self, action):
         # 确保动作在预定范围内
@@ -149,24 +154,24 @@ class EscapeRoomEnv(gym.Env):
             reward += -np.log1p(-distance_improvement)  # 奖励减少
 
         reward += penalty
-        reward += -alpha  # 步数惩罚
+        # reward += -alpha  # 步数惩罚
 
         self.reward = reward
 
+        self.goal_dis = self.dis_to_goal()
         # 返回状态
         state = np.array(
             [
                 self.robot.x,
                 self.robot.y,
                 self.robot.theta,
-                self.robot.vx,
-                self.robot.vy,
-                self.robot.omega,
+                self.goal_dis,
                 self.obs_dis[0],
                 self.obs_dis[1],
                 self.obs_dis[2],
                 self.obs_dis[3],
-                self.reward
+                self.goal_position[0],
+                self.goal_position[1]
 
             ]
         )
@@ -205,6 +210,7 @@ class EscapeRoomEnv(gym.Env):
         self.old_distance = np.linalg.norm(
             np.array([self.robot.x, self.robot.y]) - np.array(self.goal.center_pos)
         )
+        self.goal_dis = self.dis_to_goal()
         self.screen = None
         self.clock = None
         info = {"message": "Environment reset."}
@@ -215,14 +221,13 @@ class EscapeRoomEnv(gym.Env):
                     self.robot.x,
                     self.robot.y,
                     self.robot.theta,
-                    self.robot.vx,
-                    self.robot.vy,
-                    self.robot.omega,
+                    self.goal_dis,
                     self.obs_dis[0],
                     self.obs_dis[1],
                     self.obs_dis[2],
                     self.obs_dis[3],
-                    self.reward
+                    self.goal_position[0],
+                    self.goal_position[1]
                 ]
             ),
             info,
